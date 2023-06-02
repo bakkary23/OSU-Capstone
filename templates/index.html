@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>AWS Policy Generator</title>
+        <link rel="stylesheet" type="text/css" href="/static/styles.css">
+        <script>
+            let services = [];
+            let available_services = [];
+
+            async function getAvailableServices() {
+                const response = await fetch('/get_available_services');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                available_services = data.services;
+                populateServiceSelect();
+            }
+
+            function populateServiceSelect() {
+                const serviceSelect = document.getElementById('service-select');
+                for (const service of available_services) {
+                    var opt = document.createElement('option');
+                    opt.value = service;
+                    opt.innerHTML = service;
+                    serviceSelect.appendChild(opt);
+                }
+            }
+
+            // Function to add a service
+            async function addService() {
+                const serviceSelect = document.getElementById('service-select');
+                const entityNameInput = document.getElementById('entity-name-input');
+                const service = serviceSelect.value;
+                const name = entityNameInput.value || '*';  // Use * if no name is provided
+                if (!service) return;
+
+                const response = await fetch('/add_service', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service, name })  // Include name in the request
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                services = data.services;
+                entity_names = data.entity_names;
+                updateServiceDeleteSelect();
+                refreshGraph();
+                updateEntitySelects();
+                serviceSelect.value = '';
+                entityNameInput.value = '';
+            }
+
+            // Function to delete a service
+            async function deleteService() {
+                const deleteSelect = document.getElementById('service-select-delete');
+                const service = deleteSelect.value;
+                if (!service) return;
+
+                const response = await fetch('/delete_service', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ service })
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                services = data.services;
+                updateServiceDeleteSelect();
+                updateEntitySelects();
+                updateRelationshipList(data.relationships);
+                updateRelationshipsDropdown(data.relationships);
+                refreshGraph();
+                deleteSelect.value = 'Select entity to delete';
+            }
+
+            // Function to create a relationship
+            async function createRelationship() {
+                const sourceSelect = document.getElementById('source-select');
+                const targetSelect = document.getElementById('target-select');
+                const source = sourceSelect.value;
+                const target = targetSelect.value;
+                if (source === 'Select source entity' || target === 'Select target entity') {
+                    if(source === 'Select source entity' && target === 'Select target entity') {
+                        return;
+                    } else {
+                        alert('Please provide both a source and target entity');
+                        return;
+                    }
+                }
+
+                const response = await fetch('/create_relationship', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ source, target })
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                updateRelationshipList(data.relationships);
+                updateRelationshipsDropdown(data.relationships);
+                refreshGraph();
+                sourceSelect.value = 'Select source entity';
+                targetSelect.value = 'Select target entity';
+            }
+
+            // Function to dynamically update the delete dropdown
+            function updateServiceDeleteSelect() {
+                const deleteSelect = document.getElementById('service-select-delete');
+                deleteSelect.innerHTML = '';
+                const defaultOption = document.createElement('option');
+                defaultOption.textContent = 'Select entity to delete';
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                deleteSelect.appendChild(defaultOption);
+                for (const service of services) {
+                    const option = document.createElement('option');
+                    option.value = service;
+                    option.textContent = entity_names[service] || service; // Display user-inputted name if available, else display service
+                    deleteSelect.appendChild(option);
+                }
+            }
+
+            function updateEntitySelects() {
+                const sourceSelect = document.getElementById('source-select');
+                const targetSelect = document.getElementById('target-select');
+                sourceSelect.innerHTML = '';
+                targetSelect.innerHTML = '';
+                const sourceDefaultOption = document.createElement('option');
+                const targetDefaultOption = document.createElement('option');
+                sourceDefaultOption.textContent = 'Select source entity';
+                sourceDefaultOption.disabled = true;
+                sourceDefaultOption.selected = true;
+                targetDefaultOption.textContent = 'Select target entity';
+                targetDefaultOption.disabled = true;
+                targetDefaultOption.selected = true;
+                sourceSelect.appendChild(sourceDefaultOption);
+                targetSelect.appendChild(targetDefaultOption);
+                for (const service of services) {
+                    const sourceOption = document.createElement('option');
+                    const targetOption = document.createElement('option');
+                    sourceOption.value = service;
+                    targetOption.value = service;
+                    sourceOption.textContent = entity_names[service] || service; // Display user-inputted name if available, else display service
+                    targetOption.textContent = entity_names[service] || service; // Display user-inputted name if available, else display service
+                    sourceSelect.appendChild(sourceOption);
+                    targetSelect.appendChild(targetOption);
+                }
+            }
+
+            function updateRelationshipList(relationships) {
+                const relationshipList = document.getElementById('relationship-list');
+                relationshipList.innerHTML = '';
+                for (const relationship of relationships) {
+                    const relationshipDiv = document.createElement('pre'); // Use <pre> to preserve spaces for formatting
+                    const prettyPolicy = JSON.stringify(relationship.policy, null, 4); // Indent with 4 spaces
+                    relationshipDiv.textContent = prettyPolicy;
+                    relationshipList.appendChild(relationshipDiv);
+                }
+            }
+
+            // Function to dynamically update the relationships dropdown
+            function updateRelationshipsDropdown(relationships) {
+                const relationshipSelect = document.getElementById('relationship-select');
+                relationshipSelect.innerHTML = '';
+                const defaultOption = document.createElement('option');
+                defaultOption.textContent = 'Select relationship to delete';
+                defaultOption.disabled = true;
+                defaultOption.selected = true;
+                relationshipSelect.appendChild(defaultOption);
+                for (let i = 0; i < relationships.length; i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = relationships[i].policy.Id; // Display relationship ID instead of entire policy
+                    relationshipSelect.appendChild(option);
+                }
+            }
+
+            // Function to delete a selected relationship
+            async function deleteRelationship() {
+                const relationshipSelect = document.getElementById('relationship-select');
+                const index = relationshipSelect.value;
+                if (index === '') return;
+
+                const response = await fetch('/delete_relationship', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index })
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                updateRelationshipList(data.relationships);
+                updateRelationshipsDropdown(data.relationships);
+                refreshGraph();
+                relationshipSelect.value = '';
+            }
+
+            async function deleteAllEntities() {
+                if (services.length === 0) {
+                    return;
+                }
+                if (!confirm('Are you sure you want to delete all entities? This will also delete all existing relationships')) return;
+
+                const response = await fetch('/delete_all_services', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                services = data.services;
+                updateServiceDeleteSelect();
+                updateEntitySelects();
+                updateRelationshipList(data.relationships)
+                updateRelationshipsDropdown(data.relationships) ;
+                refreshGraph();
+            }
+
+            async function deleteAllRelationships() {
+                const relationships = JSON.parse(document.getElementById('relationship-list').textContent);
+                if (relationships.length === 0) {
+                    return;
+                }
+                if (!confirm('Are you sure you want to delete all relationships?')) return;
+
+                const response = await fetch('/delete_all_relationships', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                updateRelationshipList(data.relationships);
+                updateRelationshipsDropdown(data.relationships);
+                refreshGraph();
+            }
+
+            async function refreshGraph() {
+                const response = await fetch('/get_graph');
+                const data = await response.json();
+
+                if (!response.ok) {
+                    alert(data.error);
+                    return;
+                }
+
+                const graphImage = document.getElementById('graph-image');
+                graphImage.src = data.url + '?timestamp=' + Date.now();
+            }
+
+            window.onload = async function() {
+                getAvailableServices();
+                updateServiceDeleteSelect();
+                updateEntitySelects();
+                refreshGraph();
+                updateRelationshipList([]);
+                updateRelationshipsDropdown();
+            }
+
+        </script>
+    </head>
+    <body>
+        <h1>AWS Policy Generator</h1>
+        <div id="main-container">
+            <div id="form-section">
+                <h2>Add service entity:</h2>
+                <select id="service-select">
+                    <option disabled selected value="">Select service</option>
+                </select>
+                <input type="text" id="entity-name-input" placeholder="Enter entity name (optional)">
+                <button onclick="addService()">Add service entity</button> <br>
+                <select id="service-select-delete">
+                    <option disabled selected value="">Select entity to delete</option>
+                </select>
+                <div class="delete-container">
+                    <button class="delete-button delete-selected" onclick="deleteService()">Delete selected entity</button>
+                    <button class="delete-button" onclick="deleteAllEntities()">Delete all entities</button>
+                </div>
+                <h2>Add relationship:</h2>
+                <select id="source-select">
+                    <option disabled selected value="">Select source entity</option>
+                </select>
+                <select id="target-select">
+                    <option disabled selected value="">Select target entity</option>
+                </select>
+                <button onclick="createRelationship()">Add to policy</button> <br>
+                <select id="relationship-select">
+                    <option disabled selected value="">Select relationship to delete</option>
+                </select>
+                <div class="delete-container">
+                    <button class="delete-button delete-selected" onclick="deleteRelationship()">Delete selected relationship</button>
+                    <button class="delete-button" onclick="deleteAllRelationships()">Delete all relationships</button>
+                </div>
+            </div>
+            <div id="policy-section">
+                <h2>Policy:</h2>
+                <div id="relationship-list"></div>
+            </div>
+        </div>
+        <div id="graph-section">
+            <h2>Relationship visualizer:</h2>
+            <div id="graph-container">
+                <img id="graph-image" src="" alt="Graph image will be displayed here" />
+            </div>
+        </div>
+    </body>
+</html>
